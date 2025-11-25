@@ -15,6 +15,318 @@ import {
   Download,
 } from "lucide-react";
 
+// Enhanced CFG Visualization Component (inspired by reference implementation)
+const CFGVisualization = ({ nodes, edges }) => {
+  if (!nodes || nodes.length === 0) return null;
+
+  const verticalSpacing = 100;
+  const centerX = 250;
+  const svgWidth = 550;
+  const svgHeight = Math.max(400, nodes.length * verticalSpacing + 100);
+
+  // Determine node type
+  const getNodeType = (node) => {
+    if (node.is_entry) return "entry";
+    if (node.is_exit) return "exit";
+    if (
+      node.code_snippet &&
+      (node.code_snippet.includes("if") ||
+        node.code_snippet.includes("while") ||
+        node.code_snippet.includes("for") ||
+        node.code_snippet.includes("switch"))
+    )
+      return "decision";
+    return "statement";
+  };
+
+  return (
+    <div className="bg-gray-50 rounded-lg p-4 overflow-x-auto">
+      <p className="text-sm font-medium text-gray-700 mb-3">
+        Control Flow Graph ({nodes.length} nodes, {edges?.length || 0} edges):
+      </p>
+      <div className="bg-white rounded border border-gray-200 p-4">
+        <svg width={svgWidth} height={svgHeight} className="mx-auto">
+          {/* Arrow markers */}
+          <defs>
+            <marker
+              id="arrow-gray"
+              markerWidth="10"
+              markerHeight="10"
+              refX="9"
+              refY="3"
+              orient="auto"
+            >
+              <polygon points="0 0, 10 3, 0 6" fill="#6B7280" />
+            </marker>
+            <marker
+              id="arrow-green"
+              markerWidth="10"
+              markerHeight="10"
+              refX="9"
+              refY="3"
+              orient="auto"
+            >
+              <polygon points="0 0, 10 3, 0 6" fill="#22C55E" />
+            </marker>
+            <marker
+              id="arrow-red"
+              markerWidth="10"
+              markerHeight="10"
+              refX="9"
+              refY="3"
+              orient="auto"
+            >
+              <polygon points="0 0, 10 3, 0 6" fill="#EF4444" />
+            </marker>
+          </defs>
+
+          {/* Draw edges first */}
+          {edges?.map((edge, idx) => {
+            const fromIdx = nodes.findIndex(
+              (n) => n.node_id === edge.source_node_id
+            );
+            const toIdx = nodes.findIndex(
+              (n) => n.node_id === edge.target_node_id
+            );
+            if (fromIdx === -1 || toIdx === -1) return null;
+
+            const y1 = 50 + fromIdx * verticalSpacing + 30;
+            const y2 = 50 + toIdx * verticalSpacing - 30;
+
+            const isTrueBranch =
+              edge.label &&
+              (edge.label.includes("true") ||
+                edge.label.includes("True") ||
+                edge.label === "next");
+            const isFalseBranch =
+              edge.label &&
+              (edge.label.includes("false") || edge.label.includes("False"));
+
+            // True branch - straight down (green)
+            if (isTrueBranch || (!isTrueBranch && !isFalseBranch)) {
+              return (
+                <g key={idx}>
+                  <line
+                    x1={centerX}
+                    y1={y1}
+                    x2={centerX}
+                    y2={y2}
+                    stroke={isTrueBranch ? "#22C55E" : "#6B7280"}
+                    strokeWidth="2"
+                    markerEnd={
+                      isTrueBranch ? "url(#arrow-green)" : "url(#arrow-gray)"
+                    }
+                  />
+                  {edge.label && edge.label !== "next" && (
+                    <text
+                      x={centerX + 15}
+                      y={(y1 + y2) / 2}
+                      fill="#22C55E"
+                      fontSize="11"
+                      fontWeight="600"
+                    >
+                      {edge.label}
+                    </text>
+                  )}
+                </g>
+              );
+            }
+
+            // False branch - curved to right (red)
+            if (isFalseBranch) {
+              const controlX = 380;
+              const controlY1 = y1 + 30;
+              const controlY2 = y2 - 30;
+              return (
+                <g key={idx}>
+                  <path
+                    d={`M ${centerX} ${y1} C ${controlX} ${controlY1}, ${controlX} ${controlY2}, ${centerX} ${y2}`}
+                    stroke="#EF4444"
+                    strokeWidth="2"
+                    fill="none"
+                    markerEnd="url(#arrow-red)"
+                  />
+                  <text
+                    x={controlX + 10}
+                    y={(y1 + y2) / 2}
+                    fill="#EF4444"
+                    fontSize="11"
+                    fontWeight="600"
+                  >
+                    {edge.label}
+                  </text>
+                </g>
+              );
+            }
+
+            return null;
+          })}
+
+          {/* Draw nodes on top */}
+          {nodes.map((node, idx) => {
+            const y = 50 + idx * verticalSpacing;
+            const nodeType = getNodeType(node);
+
+            return (
+              <g key={node.node_id}>
+                {/* Node ID label on left */}
+                <text
+                  x={centerX - 90}
+                  y={y + 5}
+                  fill="#64748B"
+                  fontSize="12"
+                  fontWeight="700"
+                >
+                  N{node.node_id}
+                </text>
+
+                {/* Decision node - diamond shape */}
+                {nodeType === "decision" && (
+                  <>
+                    <polygon
+                      points={`${centerX},${y - 35} ${
+                        centerX + 75
+                      },${y} ${centerX},${y + 35} ${centerX - 75},${y}`}
+                      fill="#FEF3C7"
+                      stroke="#F59E0B"
+                      strokeWidth="2"
+                    />
+                    <text
+                      x={centerX}
+                      y={y - 5}
+                      textAnchor="middle"
+                      fill="#92400E"
+                      fontSize="11"
+                      fontWeight="600"
+                    >
+                      {node.code_snippet?.substring(0, 18) || "Decision"}
+                    </text>
+                    <text
+                      x={centerX}
+                      y={y + 10}
+                      textAnchor="middle"
+                      fill="#92400E"
+                      fontSize="9"
+                    >
+                      {node.code_snippet?.length > 18 ? "..." : ""}
+                    </text>
+                  </>
+                )}
+
+                {/* Entry/Exit node - ellipse shape */}
+                {(nodeType === "entry" || nodeType === "exit") && (
+                  <>
+                    <ellipse
+                      cx={centerX}
+                      cy={y}
+                      rx="70"
+                      ry="30"
+                      fill={nodeType === "entry" ? "#DBEAFE" : "#FEE2E2"}
+                      stroke={nodeType === "entry" ? "#3B82F6" : "#EF4444"}
+                      strokeWidth="2"
+                    />
+                    <text
+                      x={centerX}
+                      y={y - 5}
+                      textAnchor="middle"
+                      fill="#1E293B"
+                      fontSize="12"
+                      fontWeight="700"
+                    >
+                      {nodeType === "entry" ? "ENTRY" : "EXIT"}
+                    </text>
+                    <text
+                      x={centerX}
+                      y={y + 10}
+                      textAnchor="middle"
+                      fill="#475569"
+                      fontSize="10"
+                    >
+                      {node.code_snippet?.substring(0, 15) || ""}
+                    </text>
+                  </>
+                )}
+
+                {/* Statement node - rectangle */}
+                {nodeType === "statement" && (
+                  <>
+                    <rect
+                      x={centerX - 75}
+                      y={y - 28}
+                      width="150"
+                      height="56"
+                      rx="6"
+                      fill="#F0F9FF"
+                      stroke="#7C3AED"
+                      strokeWidth="2"
+                    />
+                    <text
+                      x={centerX}
+                      y={y - 5}
+                      textAnchor="middle"
+                      fill="#1E293B"
+                      fontSize="11"
+                      fontWeight="500"
+                    >
+                      {node.code_snippet?.substring(0, 20) || "Statement"}
+                    </text>
+                    {node.code_snippet?.length > 20 && (
+                      <text
+                        x={centerX}
+                        y={y + 10}
+                        textAnchor="middle"
+                        fill="#475569"
+                        fontSize="10"
+                      >
+                        {node.code_snippet.substring(20, 40)}...
+                      </text>
+                    )}
+                  </>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      {/* Node details table */}
+      <div className="mt-4 bg-white rounded border border-gray-200 p-3">
+        <p className="text-xs font-semibold text-gray-700 mb-2">
+          Node Details:
+        </p>
+        <div className="space-y-1 max-h-32 overflow-y-auto">
+          {nodes.map((node) => (
+            <div
+              key={node.node_id}
+              className="text-xs flex items-start gap-2 p-1.5 hover:bg-gray-50 rounded"
+            >
+              <span className="font-mono font-bold text-gray-600 min-w-[30px]">
+                N{node.node_id}
+              </span>
+              <span
+                className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                  getNodeType(node) === "entry"
+                    ? "bg-blue-100 text-blue-700"
+                    : getNodeType(node) === "exit"
+                    ? "bg-red-100 text-red-700"
+                    : getNodeType(node) === "decision"
+                    ? "bg-yellow-100 text-yellow-700"
+                    : "bg-purple-100 text-purple-700"
+                }`}
+              >
+                {getNodeType(node)}
+              </span>
+              <span className="text-gray-600 font-mono truncate flex-1">
+                {node.code_snippet || "-"}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const WorkflowPage = () => {
   const [sourceCode, setSourceCode] = useState(`#include <iostream>
 using namespace std;
@@ -504,14 +816,14 @@ int main() {
             onPaste={(e) => {
               // Sanitize pasted content to remove invisible Unicode characters
               e.preventDefault();
-              const pastedText = e.clipboardData.getData('text');
+              const pastedText = e.clipboardData.getData("text");
               // Remove non-breaking spaces and other problematic characters
               const sanitized = pastedText
-                .replace(/\u00A0/g, ' ')  // Non-breaking space
-                .replace(/\u202F/g, ' ')  // Narrow no-break space
-                .replace(/\u2009/g, ' ')  // Thin space
-                .replace(/\u200B/g, '')   // Zero-width space
-                .replace(/\uFEFF/g, '');  // Zero-width no-break space
+                .replace(/\u00A0/g, " ") // Non-breaking space
+                .replace(/\u202F/g, " ") // Narrow no-break space
+                .replace(/\u2009/g, " ") // Thin space
+                .replace(/\u200B/g, "") // Zero-width space
+                .replace(/\uFEFF/g, ""); // Zero-width no-break space
               setSourceCode(sanitized);
             }}
             className="input-field font-mono text-sm h-64"
@@ -603,33 +915,41 @@ int main() {
           disabled={false}
         >
           {step1.data && (
-            <div className="grid grid-cols-3 gap-4 mt-4">
-              <div className="bg-white rounded-lg p-4 border border-gray-200">
-                <p className="text-sm text-gray-600">Nodes</p>
-                <p className="text-2xl font-bold text-blue-600">
-                  {step1.data.total_nodes}
-                </p>
+            <div className="space-y-4 mt-4">
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-white rounded-lg p-4 border border-gray-200">
+                  <p className="text-sm text-gray-600">Nodes</p>
+                  <p className="text-2xl font-bold text-blue-600">
+                    {step1.data.total_nodes}
+                  </p>
+                </div>
+                <div className="bg-white rounded-lg p-4 border border-gray-200">
+                  <p className="text-sm text-gray-600">Parameters</p>
+                  <p className="text-2xl font-bold text-blue-600">
+                    {step1.data.detected_parameters?.length || 0}
+                  </p>
+                </div>
+                <div className="bg-white rounded-lg p-4 border border-gray-200">
+                  <p className="text-sm text-gray-600">Complexity</p>
+                  <p className="text-2xl font-bold text-blue-600">
+                    {step1.data.complexity}
+                  </p>
+                </div>
+                <div className="col-span-3 bg-blue-50 rounded-lg p-3">
+                  <p className="text-sm font-medium text-blue-900">
+                    Detected Parameters:
+                  </p>
+                  <p className="text-sm text-blue-700 font-mono">
+                    {JSON.stringify(step1.data.detected_parameters)}
+                  </p>
+                </div>
               </div>
-              <div className="bg-white rounded-lg p-4 border border-gray-200">
-                <p className="text-sm text-gray-600">Parameters</p>
-                <p className="text-2xl font-bold text-blue-600">
-                  {step1.data.detected_parameters?.length || 0}
-                </p>
-              </div>
-              <div className="bg-white rounded-lg p-4 border border-gray-200">
-                <p className="text-sm text-gray-600">Complexity</p>
-                <p className="text-2xl font-bold text-blue-600">
-                  {step1.data.complexity}
-                </p>
-              </div>
-              <div className="col-span-3 bg-blue-50 rounded-lg p-3">
-                <p className="text-sm font-medium text-blue-900">
-                  Detected Parameters:
-                </p>
-                <p className="text-sm text-blue-700 font-mono">
-                  {JSON.stringify(step1.data.detected_parameters)}
-                </p>
-              </div>
+
+              {/* CFG Visualization */}
+              <CFGVisualization
+                nodes={step1.data.nodes}
+                edges={step1.data.edges}
+              />
             </div>
           )}
         </StepCard>
@@ -689,18 +1009,19 @@ int main() {
                     </span>
                   </div>
                 ))}
-                {((step2.data.best_individuals || step2.data.population || [])
-                  .length || 0) > 5 && (
-                  <p className="text-xs text-purple-600 mt-2">
-                    ...and{" "}
-                    {(
-                      step2.data.best_individuals ||
-                      step2.data.population ||
-                      []
-                    ).length - 5}{" "}
-                    more
-                  </p>
-                )}
+                {(() => {
+                  const totalCount =
+                    (step2.data.best_individuals || step2.data.population || [])
+                      .length || 0;
+                  const remaining = totalCount - 5;
+                  return (
+                    totalCount > 5 && (
+                      <p className="text-xs text-purple-600 mt-2">
+                        ...and {remaining} more (total: {totalCount})
+                      </p>
+                    )
+                  );
+                })()}
               </div>
             </div>
           )}
@@ -718,11 +1039,6 @@ int main() {
           onExecute={executeStep3}
           disabled={step2.status !== "completed"}
         >
-          <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
-            <p className="text-sm text-green-900 font-medium">
-              🎯 Evaluates branch coverage for each test case
-            </p>
-          </div>
           {step3.data && (
             <div className="space-y-4 mt-4">
               <div className="grid grid-cols-3 gap-4">
@@ -798,11 +1114,6 @@ int main() {
           onExecute={executeStep4}
           disabled={step3.status !== "completed"}
         >
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
-            <p className="text-sm text-blue-900 font-medium">
-              Executes all test cases from the evolved population
-            </p>
-          </div>
           {step4.data && (
             <div className="space-y-4 mt-4">
               <div className="grid grid-cols-3 gap-4">
@@ -841,11 +1152,6 @@ int main() {
           onExecute={executeStep5}
           disabled={step4.status !== "completed"}
         >
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
-            <p className="text-sm text-red-900 font-medium">
-              Analyzes test results using Tarantula algorithm
-            </p>
-          </div>
           {step5.data && (
             <div className="space-y-4 mt-4">
               <div className="grid grid-cols-3 gap-4 mb-4">

@@ -6,10 +6,17 @@ from models import Chromosome
 def generate_random_gene(param_type: str):
     """
     Generates a random gene based on the expected C++ type.
+    Includes more edge cases: negatives, zero, boundaries.
     """
     if "int" in param_type:
+        # 40% chance for special values (negatives, zero, boundaries)
+        if random.random() < 0.4:
+            return random.choice([0, -1, 1, -100, 100, -50, 50])
+        # 60% chance for random values (weighted towards negatives)
         return random.randint(-100, 100)
     elif "float" in param_type or "double" in param_type:
+        if random.random() < 0.4:
+            return random.choice([0.0, -1.0, 1.0, -100.0, 100.0])
         return round(random.uniform(-100.0, 100.0), 2)
     elif "bool" in param_type:
         return random.choice([0, 1])
@@ -49,20 +56,27 @@ def crossover(p1: Chromosome, p2: Chromosome) -> Chromosome:
 def mutate(chromosome: Chromosome, rate: float):
     """
     Enhanced mutation to find faulty test cases.
-    Includes: standard mutations, boundary values, equal values, and aggressive exploration.
+    Includes: standard mutations, boundary values, equal values, sign changes, and aggressive exploration.
     """
     # SPECIAL MUTATION 1: Occasionally make genes equal (detects a == b bugs)
-    if len(chromosome.genes) >= 2 and random.random() < 0.3:
+    if len(chromosome.genes) >= 2 and random.random() < 0.25:
         # Pick two random gene positions and make them equal
         idx1, idx2 = random.sample(range(len(chromosome.genes)), 2)
         chromosome.genes[idx2] = chromosome.genes[idx1]
     
-    # SPECIAL MUTATION 2: Boundary value testing (10% chance)
+    # SPECIAL MUTATION 2: Make one positive, one negative (detects sign-related bugs)
+    if len(chromosome.genes) >= 2 and random.random() < 0.25:
+        idx1, idx2 = random.sample(range(len(chromosome.genes)), 2)
+        if isinstance(chromosome.genes[idx1], (int, float)) and isinstance(chromosome.genes[idx2], (int, float)):
+            chromosome.genes[idx1] = abs(chromosome.genes[idx1]) or random.randint(1, 50)
+            chromosome.genes[idx2] = -abs(chromosome.genes[idx2]) or random.randint(-50, -1)
+    
+    # SPECIAL MUTATION 3: Boundary value testing (10% chance)
     if random.random() < 0.1:
         idx = random.randint(0, len(chromosome.genes) - 1)
         val = chromosome.genes[idx]
         if isinstance(val, (int, float)) and not isinstance(val, bool):
-            boundary_values = [0, -1, 1, -100, 100]
+            boundary_values = [0, -1, 1, -100, 100, -50, 50]
             chromosome.genes[idx] = random.choice(boundary_values)
             return  # Skip standard mutation this time
     

@@ -203,6 +203,42 @@ int main() {
     }
   };
 
+  // Helper function to detect function type and calculate expected output
+  const calculateExpectedOutput = (genes, sourceCode) => {
+    if (genes.length !== 2) return null;
+
+    const a = genes[0];
+    const b = genes[1];
+
+    // Detect function name from source code
+    const funcMatch = sourceCode.match(/int\s+(\w+)\s*\(/);
+    const functionName = funcMatch ? funcMatch[1].toLowerCase() : "";
+
+    // Calculate expected output based on function type
+    if (functionName.includes("max")) {
+      return Math.max(a, b);
+    } else if (functionName.includes("min")) {
+      return Math.min(a, b);
+    } else if (functionName.includes("add") || functionName.includes("sum")) {
+      return a + b;
+    } else if (functionName.includes("sub") || functionName.includes("diff")) {
+      return a - b;
+    } else if (functionName.includes("mul") || functionName.includes("mult")) {
+      return a * b;
+    } else if (functionName.includes("div") && b !== 0) {
+      return Math.floor(a / b);
+    }
+
+    // Default: try to infer from code logic
+    if (sourceCode.includes("a > b") || sourceCode.includes("a >= b")) {
+      return Math.max(a, b); // Likely a max function
+    } else if (sourceCode.includes("a < b") || sourceCode.includes("a <= b")) {
+      return Math.min(a, b); // Likely a min function
+    }
+
+    return null; // Cannot determine
+  };
+
   // Step 4: Execute All Tests Automatically
   const executeStep4 = async () => {
     if (!step2.data) return;
@@ -219,13 +255,8 @@ int main() {
         // Top 10 test cases
         const genes = individual.genes;
 
-        // Calculate expected output for findMax(a, b) = max(a, b)
-        // This simulates the correct behavior
-        let expectedOutput = null;
-        if (genes.length === 2) {
-          // For 2-parameter functions, assume it's findMax
-          expectedOutput = Math.max(genes[0], genes[1]);
-        }
+        // Calculate expected output dynamically based on function type
+        const expectedOutput = calculateExpectedOutput(genes, sourceCode);
 
         const response = await axios.post("/test/execute", {
           source_filename: filename,
@@ -470,6 +501,19 @@ int main() {
           <textarea
             value={sourceCode}
             onChange={(e) => setSourceCode(e.target.value)}
+            onPaste={(e) => {
+              // Sanitize pasted content to remove invisible Unicode characters
+              e.preventDefault();
+              const pastedText = e.clipboardData.getData('text');
+              // Remove non-breaking spaces and other problematic characters
+              const sanitized = pastedText
+                .replace(/\u00A0/g, ' ')  // Non-breaking space
+                .replace(/\u202F/g, ' ')  // Narrow no-break space
+                .replace(/\u2009/g, ' ')  // Thin space
+                .replace(/\u200B/g, '')   // Zero-width space
+                .replace(/\uFEFF/g, '');  // Zero-width no-break space
+              setSourceCode(sanitized);
+            }}
             className="input-field font-mono text-sm h-64"
             placeholder="Paste your C++ code here..."
           />

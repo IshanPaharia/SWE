@@ -26,6 +26,20 @@ from reporter import FaultLocalizationReporter, generate_quick_report
 
 app = FastAPI(title="Automated Test Case Generator")
 
+# Helper function to sanitize source code
+def sanitize_source_code(code: str) -> str:
+    """
+    Remove invisible Unicode characters that break C++ compilation.
+    Common culprits: non-breaking spaces from copy-paste operations.
+    """
+    # Replace non-breaking spaces and similar characters with regular spaces
+    code = code.replace('\u00A0', ' ')  # Non-breaking space
+    code = code.replace('\u202F', ' ')  # Narrow no-break space
+    code = code.replace('\u2009', ' ')  # Thin space
+    code = code.replace('\u200B', '')   # Zero-width space
+    code = code.replace('\uFEFF', '')   # Zero-width no-break space (BOM)
+    return code
+
 # Enable CORS for frontend
 app.add_middleware(
     CORSMiddleware,
@@ -47,8 +61,11 @@ async def generate_cfg(data: SourceCodeInput):
         raise HTTPException(status_code=400, detail="Source code empty")
 
     try:
+        # Sanitize source code to remove invisible Unicode characters
+        sanitized_code = sanitize_source_code(data.source_code)
+        
         # 1. Run Logic (cfg_parser.py)
-        result = analyze_cpp_code(data.source_code)
+        result = analyze_cpp_code(sanitized_code)
         
         # 2. Map Logic result to API Models
         final_nodes = [CFGNode(**n) for n in result["nodes"]]
@@ -203,9 +220,12 @@ async def evaluate_fitness(data: FitnessEvaluationInput):
     cfg_data = stored_cfgs[data.cfg_id]
     
     try:
+        # Sanitize source code
+        sanitized_code = sanitize_source_code(data.source_code)
+        
         # Execute test case with source code
         execution_result = execute_test_case(
-            source_code=data.source_code,
+            source_code=sanitized_code,
             test_inputs=data.test_case.genes
         )
         
@@ -282,9 +302,12 @@ async def execute_test(data: TestExecutionInput):
     Uses GCC with --coverage flag and gcov for coverage data collection.
     """
     try:
+        # Sanitize source code
+        sanitized_code = sanitize_source_code(data.source_code)
+        
         # Execute test with coverage collection
         result = execute_test_case(
-            source_code=data.source_code,
+            source_code=sanitized_code,
             test_inputs=data.test_inputs,
             expected_output=data.expected_output
         )

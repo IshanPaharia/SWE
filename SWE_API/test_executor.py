@@ -52,15 +52,30 @@ class TestExecutor:
             (success, binary_path, error_message)
         """
         source_path = self.work_dir / source_filename
-        binary_path = self.work_dir / "test_program"
+        # Add .exe extension on Windows
+        binary_name = "test_program.exe" if os.name == 'nt' else "test_program"
+        binary_path = self.work_dir / binary_name
         
         # Write source code to file
         try:
-            with open(source_path, 'w') as f:
-                f.write(source_code)
+            # SANITIZE: Remove invisible Unicode characters that break compilation
+            # Replace non-breaking spaces (\u00A0, \u202F, etc.) with regular spaces
+            sanitized_code = source_code
+            # Remove common problematic Unicode characters
+            sanitized_code = sanitized_code.replace('\u00A0', ' ')  # Non-breaking space
+            sanitized_code = sanitized_code.replace('\u202F', ' ')  # Narrow no-break space
+            sanitized_code = sanitized_code.replace('\u2009', ' ')  # Thin space
+            sanitized_code = sanitized_code.replace('\u200B', '')   # Zero-width space
+            sanitized_code = sanitized_code.replace('\uFEFF', '')   # Zero-width no-break space (BOM)
+            
+            with open(source_path, 'w', encoding='utf-8') as f:
+                f.write(sanitized_code)
             self.cleanup_files.append(source_path)
+            print(f"[DEBUG] Source file written: {source_path}")
         except Exception as e:
-            return False, "", f"Failed to write source: {e}"
+            error_msg = f"Failed to write source: {e}"
+            print(f"[ERROR] {error_msg}")
+            return False, "", error_msg
         
         # Compile with coverage flags
         # -fprofile-arcs: Generates .gcda files (execution counts)
@@ -76,6 +91,7 @@ class TestExecutor:
         ]
         
         try:
+            print(f"[DEBUG] Compiling: {' '.join(compile_cmd)}")
             result = subprocess.run(
                 compile_cmd,
                 capture_output=True,
@@ -85,15 +101,31 @@ class TestExecutor:
             )
             
             if result.returncode != 0:
-                return False, "", f"Compilation failed: {result.stderr}"
+                error_msg = f"Compilation failed: {result.stderr}"
+                print(f"[ERROR] {error_msg}")
+                return False, "", error_msg
+            
+            if not binary_path.exists():
+                error_msg = f"Binary not created: {binary_path}"
+                print(f"[ERROR] {error_msg}")
+                return False, "", error_msg
             
             self.cleanup_files.append(binary_path)
+            print(f"[DEBUG] Compilation successful: {binary_path}")
             return True, str(binary_path), ""
             
         except subprocess.TimeoutExpired:
-            return False, "", "Compilation timeout"
+            error_msg = "Compilation timeout"
+            print(f"[ERROR] {error_msg}")
+            return False, "", error_msg
+        except FileNotFoundError:
+            error_msg = "g++ not found. Please install MinGW-w64 or GCC on Windows"
+            print(f"[ERROR] {error_msg}")
+            return False, "", error_msg
         except Exception as e:
-            return False, "", f"Compilation error: {e}"
+            error_msg = f"Compilation error: {e}"
+            print(f"[ERROR] {error_msg}")
+            return False, "", error_msg
     
     def execute_test(
         self,
@@ -122,6 +154,7 @@ class TestExecutor:
         
         try:
             # Execute the binary
+            print(f"[DEBUG] Executing: {binary_path} with inputs: {test_inputs}")
             result = subprocess.run(
                 [binary_path],
                 input=input_str,
@@ -135,6 +168,10 @@ class TestExecutor:
             output = result.stdout.strip()
             error = result.stderr.strip() if result.stderr else None
             
+            print(f"[DEBUG] Execution output: '{output}', expected: '{expected_output}'")
+            if result.returncode != 0:
+                print(f"[DEBUG] Execution failed with return code: {result.returncode}")
+            
             # Determine pass/fail status
             if result.returncode != 0:
                 status = "failed"
@@ -143,8 +180,11 @@ class TestExecutor:
             else:
                 status = "passed"  # No expected output, just check if it ran
             
+            print(f"[DEBUG] Test status: {status}")
+            
             # Collect coverage data
             coverage_data, branches_taken = self._collect_coverage_data()
+            print(f"[DEBUG] Coverage data collected: {len(coverage_data)} lines, {len(branches_taken)} branches")
             
             return TestExecutionOutput(
                 test_id=test_id,
@@ -190,13 +230,20 @@ class TestExecutor:
         try:
             # Find .gcda files (execution count data)
             gcda_files = list(self.work_dir.glob("*.gcda"))
+            print(f"[DEBUG] Found {len(gcda_files)} .gcda files: {[f.name for f in gcda_files]}")
             
             if not gcda_files:
+                print("[WARNING] No .gcda files found - coverage not collected")
                 return coverage_data, branches_taken
+            
+            # Find .gcno files
+            gcno_files = list(self.work_dir.glob("*.gcno"))
+            print(f"[DEBUG] Found {len(gcno_files)} .gcno files: {[f.name for f in gcno_files]}")
             
             # Run gcov on the source file
             gcov_cmd = ["gcov", "-b", "test_program.cpp"]  # -b for branch coverage
             
+            print(f"[DEBUG] Running gcov: {' '.join(gcov_cmd)}")
             result = subprocess.run(
                 gcov_cmd,
                 capture_output=True,
@@ -205,14 +252,24 @@ class TestExecutor:
                 timeout=10
             )
             
+            if result.returncode != 0:
+                print(f"[WARNING] gcov failed: {result.stderr}")
+            else:
+                print(f"[DEBUG] gcov output: {result.stdout[:200]}...")
+            
             # Parse gcov output file
             gcov_file = self.work_dir / "test_program.cpp.gcov"
             if gcov_file.exists():
+                print(f"[DEBUG] Parsing gcov file: {gcov_file}")
                 coverage_data = self._parse_gcov_file(gcov_file)
                 branches_taken = self._extract_branches(coverage_data)
+            else:
+                print(f"[WARNING] gcov file not found: {gcov_file}")
             
+        except FileNotFoundError:
+            print("[ERROR] gcov not found. Please install MinGW-w64 or GCC on Windows")
         except Exception as e:
-            print(f"Coverage collection error: {e}")
+            print(f"[ERROR] Coverage collection error: {e}")
         
         return coverage_data, branches_taken
     
